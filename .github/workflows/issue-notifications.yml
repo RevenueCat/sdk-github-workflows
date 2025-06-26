@@ -1,13 +1,30 @@
 name: Issue Notifications
 
 on:
-  workflow_dispatch: # Manual trigger for testing
-  issues:
-    types: [opened, edited]
-  issue_comment:
-    types: [created]
-  schedule:
-    - cron: "0 * * * *" # Every hour
+  workflow_call:
+    secrets:
+      ACK_SLACK_WEBHOOK_URL:
+        required: true
+      ACK_ALERT_KEYWORDS:
+        required: false
+      ACK_REACTION_THRESHOLD:
+        required: false
+      ACK_COMMENT_THRESHOLD:
+        required: false
+
+    inputs:
+      check_all_open_issues:
+        required: false
+        type: boolean
+        default: true
+      max_issues_to_check:
+        required: false
+        type: number
+        default: 100
+      issue_state:
+        required: false
+        type: string
+        default: open
 
 jobs:
   notify:
@@ -29,11 +46,15 @@ jobs:
           # Reaction and comment thresholds to raise alert
           reaction_threshold: ${{ secrets.ACK_REACTION_THRESHOLD }}
           comment_threshold: ${{ secrets.ACK_COMMENT_THRESHOLD }}
-
+          
           # Batch checking configuration
-          check_all_open_issues: "true"
+          check_all_open_issues: ${{ inputs.check_all_open_issues }}
           max_issues_to_check: "100"
           issue_state: "open"
+
+          # Custom prefixes
+          new_issue_prefix: "🚨 New issue created on *{repo_name}*!"
+          threshold_prefix: "📈 High-engagement issue on *{repo_name}*!"
 
           # Custom message
           message_template: |
@@ -41,10 +62,6 @@ jobs:
             Created: {created_ago}
             Reactions: {reactions} | Comments: {comments}
             {url}
-
-          # Custom prefixes
-          new_issue_prefix: "🚨 New issue created on *{repo_name}*!"
-          threshold_prefix: "📈 High-engagement issue on *RevenueCat/purchases-flutter*!"
 
           # Enable both notification types
           notify_on_create: "true"
