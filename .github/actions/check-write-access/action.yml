@@ -1,0 +1,24 @@
+name: 'Check Write Access'
+description: 'Verifies that a user has write or admin access to the repository'
+inputs:
+  username:
+    description: 'GitHub username to check'
+    required: true
+  github_token:
+    description: 'GitHub token for API access'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Check write access
+      shell: bash
+      run: |
+        PERMISSION=$(gh api repos/${{ github.repository }}/collaborators/${{ inputs.username }}/permission --jq .permission)
+        if [[ "$PERMISSION" == "admin" || "$PERMISSION" == "write" ]]; then
+          echo "✓ User has write access (permission: $PERMISSION)"
+        else
+          echo "✗ User does not have write access (permission: $PERMISSION)"
+          exit 1
+        fi
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
