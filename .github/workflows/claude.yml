@@ -38,27 +38,30 @@ jobs:
       id-token: write
       actions: read # Required for Claude to read CI results on PRs
     steps:
+      - name: Check write access
+        run: |
+          if [[ "${{ github.event_name }}" == "issue_comment" || "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
+            USERNAME="${{ github.event.comment.user.login }}"
+          elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
+            USERNAME="${{ github.event.review.user.login }}"
+          elif [[ "${{ github.event_name }}" == "issues" ]]; then
+            USERNAME="${{ github.event.issue.user.login }}"
+          fi
+          
+          PERMISSION=$(gh api repos/${{ github.repository }}/collaborators/$USERNAME/permission --jq .permission)
+          if [[ "$PERMISSION" == "admin" || "$PERMISSION" == "write" ]]; then
+            echo "✓ User $USERNAME has write access (permission: $PERMISSION)"
+          else
+            echo "✗ User $USERNAME does not have write access (permission: $PERMISSION)"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
-      - name: Determine user to check
-        id: get-user
-        run: |
-          if [[ "${{ github.event_name }}" == "issue_comment" || "${{ github.event_name }}" == "pull_request_review_comment" ]]; then
-            echo "username=${{ github.event.comment.user.login }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event_name }}" == "pull_request_review" ]]; then
-            echo "username=${{ github.event.review.user.login }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.event_name }}" == "issues" ]]; then
-            echo "username=${{ github.event.issue.user.login }}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Check write access
-        uses: ./.github/actions/check-write-access
-        with:
-          username: ${{ steps.get-user.outputs.username }}
-          github_token: ${{ github.token }}
 
       - name: Run Claude Code
         id: claude

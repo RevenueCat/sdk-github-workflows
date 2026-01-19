@@ -24,16 +24,22 @@ jobs:
       id-token: write
 
     steps:
+      - name: Check write access
+        run: |
+          PERMISSION=$(gh api repos/${{ github.repository }}/collaborators/${{ github.event.pull_request.user.login }}/permission --jq .permission)
+          if [[ "$PERMISSION" == "admin" || "$PERMISSION" == "write" ]]; then
+            echo "✓ User has write access (permission: $PERMISSION)"
+          else
+            echo "✗ User does not have write access (permission: $PERMISSION)"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
-      - name: Check write access
-        uses: ./.github/actions/check-write-access
-        with:
-          username: ${{ github.event.pull_request.user.login }}
-          github_token: ${{ github.token }}
 
       - name: Run Claude Code Review
         id: claude-review
