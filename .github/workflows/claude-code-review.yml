@@ -14,7 +14,8 @@ jobs:
   claude-review:
     # Only allow org members and owners to trigger Claude reviews
     if: |
-      github.event.pull_request.author_association == 'MEMBER'
+      github.event.pull_request.author_association == 'MEMBER' &&
+      !github.event.pull_request.draft
 
     runs-on: ubuntu-latest
     permissions:
