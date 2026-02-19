@@ -11,8 +11,8 @@ on:
     secrets:
       ANTHROPIC_API_KEY:
         required: true
-      GITHUB_TOKEN_SPECS:
-        description: 'GitHub token with access to RevenueCat/sdk-specs (optional, for spec-checking)'
+      READ_ORG_GITHUB_TOKEN:
+        description: 'GitHub token with read access to RevenueCat org repos (for spec-checking)'
         required: false
 jobs:
   claude-review:
@@ -55,7 +55,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ secrets.GITHUB_TOKEN_SPECS || github.token }}
+          github_token: ${{ secrets.READ_ORG_GITHUB_TOKEN || github.token }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
