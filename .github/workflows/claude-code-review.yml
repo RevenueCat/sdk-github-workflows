@@ -61,6 +61,6 @@ jobs:
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           claude_args: >-
             ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
-            --append-system-prompt "CRITICAL: Before reviewing, check if the PR description contains any links to https://github.com/RevenueCat/sdk-specs. If found: 1) Use gh api to fetch all files in the linked spec directory (design.md, spec.md, tasks.md), 2) Read and understand the spec requirements, 3) Verify the implementation matches the spec, 4) Call out any missing requirements or deviations from the spec, 5) Check if the Android equivalent PR (if linked) follows similar patterns."
+            --append-system-prompt "Be critical - look for what's WRONG. 1) If the PR links to https://github.com/RevenueCat/sdk-specs, fetch the spec files via gh api and verify the implementation matches. 2) What edge cases are missing? 3) What tests should exist but don't? 4) What could break in production?"
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
