@@ -11,6 +11,9 @@ on:
     secrets:
       ANTHROPIC_API_KEY:
         required: true
+      GITHUB_TOKEN_SPECS:
+        description: 'GitHub token with access to RevenueCat/sdk-specs (optional, for spec-checking)'
+        required: false
 jobs:
   claude-review:
     if: |
@@ -52,18 +55,12 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN_SPECS || github.token }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
-          prompt: |
-            /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
-
-            CRITICAL: Before reviewing, check if the PR description contains any links to
-            https://github.com/RevenueCat/sdk-specs. If found:
-            1. Use `gh api` to fetch all files in the linked spec directory (design.md, spec.md, tasks.md)
-            2. Read and understand the spec requirements
-            3. Verify the implementation matches the spec
-            4. Call out any missing requirements or deviations from the spec
-            5. Check if the Android equivalent PR (if linked) follows similar patterns
-          claude_args: ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          claude_args: |
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            --append-system-prompt "CRITICAL: Before reviewing, check if the PR description contains any links to https://github.com/RevenueCat/sdk-specs. If found: 1) Use gh api to fetch all files in the linked spec directory (design.md, spec.md, tasks.md), 2) Read and understand the spec requirements, 3) Verify the implementation matches the spec, 4) Call out any missing requirements or deviations from the spec, 5) Check if the Android equivalent PR (if linked) follows similar patterns."
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
