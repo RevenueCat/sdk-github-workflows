@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Issue Notification Action
-        uses: joshdholtz/github-action-issue-ack@v17
+        uses: joshdholtz/github-action-issue-ack@920321bddad3c0f824db4db697eb1fbf0ef3d617 # v17
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
