@@ -56,16 +56,26 @@ jobs:
 
           # 2. Most recent instance of the target workflow in that pipeline.
           # Reruns add new entries, so we pick the newest match (first in list).
-          WORKFLOW_ID=$(curl -s --max-time 15 \
+          TARGET_WORKFLOW=$(curl -s --max-time 15 \
             -H "Circle-Token: $CCI_TOKEN" \
             "https://circleci.com/api/v2/pipeline/$PIPELINE_ID/workflow" \
-            | jq -r --arg name "$WORKFLOW_NAME" 'first(.items[] | select(.name == $name)) | .id')
+            | jq -c --arg name "$WORKFLOW_NAME" 'first(.items[] | select(.name == $name))')
 
-          if [[ -z "$WORKFLOW_ID" || "$WORKFLOW_ID" == "null" ]]; then
+          if [[ -z "$TARGET_WORKFLOW" || "$TARGET_WORKFLOW" == "null" ]]; then
             echo "::error::No '$WORKFLOW_NAME' workflow found in pipeline $PIPELINE_ID"
             exit 1
           fi
-          echo "Found workflow: $WORKFLOW_ID"
+
+          WORKFLOW_ID=$(echo "$TARGET_WORKFLOW" | jq -r '.id')
+          WORKFLOW_STATUS=$(echo "$TARGET_WORKFLOW" | jq -r '.status')
+          echo "Found workflow: $WORKFLOW_ID (status: $WORKFLOW_STATUS)"
+
+          # If the workflow is still running (e.g. a commit was just pushed),
+          # skip the rerun to avoid duplicate concurrent runs.
+          if [[ "$WORKFLOW_STATUS" == "running" ]]; then
+            echo "Workflow is already running — skipping rerun."
+            exit 0
+          fi
 
           # 3. Rerun from scratch
           HTTP_STATUS=$(curl -s --max-time 15 -o /dev/null -w "%{http_code}" -X POST \
