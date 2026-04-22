@@ -31,6 +31,11 @@ jobs:
     # Skip fork PRs — CircleCI typically doesn't build them, so there's no
     # workflow to rerun.
     if: github.event.pull_request.head.repo.full_name == github.repository
+    # If labels are toggled rapidly, cancel any in-flight run for this PR
+    # so only the latest label state triggers a CircleCI rerun.
+    concurrency:
+      group: rerun-danger-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     permissions: {}
 
     steps:
