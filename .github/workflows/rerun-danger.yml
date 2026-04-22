@@ -1,0 +1,97 @@
+name: Re-run Danger
+
+# Reusable workflow: re-runs a named CircleCI workflow (default `danger`) for
+# the PR branch's most recent pipeline. Useful when Danger fails for a state
+# that can be fixed without a commit (e.g. adding a missing PR label), since
+# CircleCI otherwise won't re-evaluate without a new push.
+#
+# Callers are expected to trigger this on `pull_request: [labeled, unlabeled]`
+# and supply a CircleCI project slug.
+
+on:
+  workflow_call:
+    inputs:
+      project_slug:
+        description: "CircleCI project slug, e.g. gh/RevenueCat/purchases-ios"
+        required: true
+        type: string
+      workflow_name:
+        description: "Name of the CircleCI workflow to rerun"
+        default: danger
+        type: string
+    secrets:
+      CIRCLECI_TOKEN:
+        required: true
+
+permissions: {}
+
+jobs:
+  rerun-danger:
+    runs-on: ubuntu-latest
+    # Skip fork PRs — CircleCI typically doesn't build them, so there's no
+    # workflow to rerun.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    # If labels are toggled rapidly, cancel any in-flight run for this PR
+    # so only the latest label state triggers a CircleCI rerun.
+    concurrency:
+      group: rerun-danger-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions: {}
+
+    steps:
+      - name: Rerun workflow on CircleCI
+        env:
+          CCI_TOKEN: ${{ secrets.CIRCLECI_TOKEN }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          PROJECT_SLUG: ${{ inputs.project_slug }}
+          WORKFLOW_NAME: ${{ inputs.workflow_name }}
+        run: |
+          # 1. Most recent pipeline for this branch
+          PIPELINE_ID=$(curl -s --max-time 15 -G \
+            -H "Circle-Token: $CCI_TOKEN" \
+            --data-urlencode "branch=$BRANCH" \
+            "https://circleci.com/api/v2/project/$PROJECT_SLUG/pipeline" \
+            | jq -r '.items[0].id')
+
+          if [[ -z "$PIPELINE_ID" || "$PIPELINE_ID" == "null" ]]; then
+            echo "::error::No CircleCI pipeline found for branch '$BRANCH'"
+            exit 1
+          fi
+          echo "Found pipeline: $PIPELINE_ID"
+
+          # 2. Most recent instance of the target workflow in that pipeline.
+          # Reruns add new entries, so we pick the newest match (first in list).
+          TARGET_WORKFLOW=$(curl -s --max-time 15 \
+            -H "Circle-Token: $CCI_TOKEN" \
+            "https://circleci.com/api/v2/pipeline/$PIPELINE_ID/workflow" \
+            | jq -c --arg name "$WORKFLOW_NAME" 'first(.items[] | select(.name == $name))')
+
+          if [[ -z "$TARGET_WORKFLOW" || "$TARGET_WORKFLOW" == "null" ]]; then
+            echo "::error::No '$WORKFLOW_NAME' workflow found in pipeline $PIPELINE_ID"
+            exit 1
+          fi
+
+          WORKFLOW_ID=$(echo "$TARGET_WORKFLOW" | jq -r '.id')
+          WORKFLOW_STATUS=$(echo "$TARGET_WORKFLOW" | jq -r '.status')
+          echo "Found workflow: $WORKFLOW_ID (status: $WORKFLOW_STATUS)"
+
+          # If the workflow is still running (e.g. a commit was just pushed),
+          # skip the rerun to avoid duplicate concurrent runs.
+          if [[ "$WORKFLOW_STATUS" == "running" ]]; then
+            echo "Workflow is already running — skipping rerun."
+            exit 0
+          fi
+
+          # 3. Rerun from scratch
+          HTTP_STATUS=$(curl -s --max-time 15 -o /dev/null -w "%{http_code}" -X POST \
+            -H "Circle-Token: $CCI_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"from_failed": false}' \
+            "https://circleci.com/api/v2/workflow/$WORKFLOW_ID/rerun")
+
+          if [[ "$HTTP_STATUS" != "202" ]]; then
+            echo "::error::Failed to rerun workflow. CircleCI returned HTTP $HTTP_STATUS"
+            exit 1
+          fi
+
+          echo "Successfully re-ran '$WORKFLOW_NAME' workflow for branch '$BRANCH'"
