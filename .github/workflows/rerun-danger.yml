@@ -66,9 +66,12 @@ jobs:
             "https://circleci.com/api/v2/pipeline/$PIPELINE_ID/workflow" \
             | jq -c --arg name "$WORKFLOW_NAME" 'first(.items[] | select(.name == $name))')
 
+          # If the target workflow doesn't exist yet, the setup pipeline is
+          # still expanding the dynamic config. The initial run will execute
+          # once expansion completes, so there's nothing to rerun.
           if [[ -z "$TARGET_WORKFLOW" || "$TARGET_WORKFLOW" == "null" ]]; then
-            echo "::error::No '$WORKFLOW_NAME' workflow found in pipeline $PIPELINE_ID"
-            exit 1
+            echo "No '$WORKFLOW_NAME' workflow in pipeline $PIPELINE_ID yet — skipping rerun."
+            exit 0
           fi
 
           WORKFLOW_ID=$(echo "$TARGET_WORKFLOW" | jq -r '.id')
