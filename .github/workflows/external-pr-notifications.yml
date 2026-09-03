@@ -1,0 +1,36 @@
+name: External PR Notifications
+
+on:
+  workflow_call:
+    secrets:
+      EXTERNAL_PR_SLACK_WEBHOOK_URL:
+        required: true
+
+permissions: {}
+
+jobs:
+  notify:
+    if: |
+      github.event.pull_request.author_association != 'OWNER' &&
+      github.event.pull_request.author_association != 'MEMBER' &&
+      github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Slack
+        env:
+          WEBHOOK_URL: ${{ secrets.EXTERNAL_PR_SLACK_WEBHOOK_URL }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          safe_title=${PR_TITLE//&/\&amp;}
+          safe_title=${safe_title//</\&lt;}
+          safe_title=${safe_title//>/\&gt;}
+
+          text="New external PR on *$REPOSITORY* by <https://github.com/$AUTHOR|$AUTHOR>: <$PR_URL|#$PR_NUMBER $safe_title>"
+
+          jq -n --arg text "$text" '{text: $text, unfurl_links: false, unfurl_media: false}' \
+            | curl --silent --fail --show-error --max-time 15 \
+                -X POST -H 'Content-type: application/json' --data @- "$WEBHOOK_URL"
