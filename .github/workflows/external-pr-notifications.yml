@@ -10,10 +10,7 @@ permissions: {}
 
 jobs:
   notify:
-    if: |
-      github.event.pull_request.author_association != 'OWNER' &&
-      github.event.pull_request.author_association != 'MEMBER' &&
-      github.event.pull_request.user.type != 'Bot'
+    if: github.event.pull_request.head.repo.fork
     runs-on: ubuntu-latest
     steps:
       - name: Post to Slack
