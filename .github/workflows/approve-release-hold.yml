@@ -1,0 +1,131 @@
+name: Approve release hold
+
+# Reusable workflow: approves the CircleCI approval job on a `release/*` branch
+# once the release PR is approved on GitHub, so nobody has to click it.
+#
+# The approval job must have no `requires`, so it is `on_hold` from pipeline
+# start and can be approved in any order relative to the tests. The tag job
+# then `requires` both the tests and the approval job, and still runs
+# `validate_pr_approved`, which stays the enforcement.
+#
+# Callers trigger this on `pull_request_review: [submitted]` (tests finished
+# first, approval later) and `pull_request: [synchronize]` (a push after the
+# approval starts a new pipeline with a fresh unapproved job). Neither event
+# can be filtered by head branch in `on:`, so the `release/` check is a job
+# `if`; a skipped job uses no runner time.
+
+on:
+  workflow_call:
+    inputs:
+      approval_job_name:
+        description: "Name of the CircleCI approval job on the release branch"
+        default: wait-for-pr-approval
+        type: string
+    secrets:
+      CIRCLECI_TOKEN:
+        required: true
+
+permissions: {}
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    if: >-
+      startsWith(github.event.pull_request.head.ref, 'release/')
+      && !github.event.pull_request.head.repo.fork
+    concurrency:
+      group: approve-release-hold-${{ github.event.pull_request.head.ref }}
+      cancel-in-progress: false
+    permissions:
+      pull-requests: read
+
+    steps:
+      - name: Approve CircleCI approval job if the PR is approved
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CCI_TOKEN: ${{ secrets.CIRCLECI_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PROJECT_SLUG: gh/${{ github.repository }}
+          APPROVAL_JOB_NAME: ${{ inputs.approval_job_name }}
+        run: |
+          set -euo pipefail
+
+          # 1. GitHub must consider the PR approved. On `synchronize`, a repo that
+          # dismisses stale reviews reports REVIEW_REQUIRED here and we stop.
+          REVIEW_DECISION=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json reviewDecision --jq '.reviewDecision')
+          if [[ "$REVIEW_DECISION" != "APPROVED" ]]; then
+            echo "PR #$PR_NUMBER review decision is '$REVIEW_DECISION', not approving."
+            exit 0
+          fi
+
+          # 2. Find the approval job in a CircleCI pipeline for the PR head. The
+          # branch can have several recent pipelines (push, PR event, API
+          # triggers), so scan the latest few for the head SHA. On `synchronize`
+          # the pipeline may not exist yet; with dynamic config the release
+          # workflow appears only after setup. Poll briefly.
+          MAX_ATTEMPTS=6
+          SLEEP_SECONDS=10
+          APPROVAL_JOB=""
+          WORKFLOW_ID=""
+          for ((attempt=1; attempt<=MAX_ATTEMPTS; attempt++)); do
+            # The pipeline list echoes commit messages, and CircleCI returns raw control
+            # characters from them unescaped, which jq rejects; strip them first.
+            # GitHub App projects report the commit under trigger_parameters, OAuth ones under vcs.
+            PIPELINE_IDS=$(curl -s --max-time 15 -G \
+              -H "Circle-Token: $CCI_TOKEN" \
+              --data-urlencode "branch=$BRANCH" \
+              "https://circleci.com/api/v2/project/$PROJECT_SLUG/pipeline" \
+              | tr -d '\000-\037' \
+              | jq -r --arg sha "$HEAD_SHA" \
+                '.items[0:5][] | select((.trigger_parameters.git.checkout_sha // .vcs.revision) == $sha) | .id')
+
+            for pipeline_id in $PIPELINE_IDS; do
+              WORKFLOW_IDS=$(curl -s --max-time 15 \
+                -H "Circle-Token: $CCI_TOKEN" \
+                "https://circleci.com/api/v2/pipeline/$pipeline_id/workflow" \
+                | jq -r '.items[].id')
+              for workflow_id in $WORKFLOW_IDS; do
+                APPROVAL_JOB=$(curl -s --max-time 15 \
+                  -H "Circle-Token: $CCI_TOKEN" \
+                  "https://circleci.com/api/v2/workflow/$workflow_id/job" \
+                  | jq -c --arg name "$APPROVAL_JOB_NAME" \
+                    'first(.items[] | select(.name == $name and .type == "approval")) // empty')
+                if [[ -n "$APPROVAL_JOB" ]]; then
+                  WORKFLOW_ID="$workflow_id"
+                  break 3
+                fi
+              done
+            done
+
+            if [[ "$attempt" -lt "$MAX_ATTEMPTS" ]]; then
+              echo "Attempt $attempt/$MAX_ATTEMPTS: no pipeline for $HEAD_SHA with job '$APPROVAL_JOB_NAME' yet. Retrying in ${SLEEP_SECONDS}s..."
+              sleep "$SLEEP_SECONDS"
+            fi
+          done
+
+          if [[ -z "$APPROVAL_JOB" ]]; then
+            echo "No CircleCI approval job '$APPROVAL_JOB_NAME' found for $BRANCH@$HEAD_SHA. Nothing to approve."
+            exit 0
+          fi
+
+          JOB_STATUS=$(echo "$APPROVAL_JOB" | jq -r '.status')
+          APPROVAL_REQUEST_ID=$(echo "$APPROVAL_JOB" | jq -r '.approval_request_id')
+          echo "Found '$APPROVAL_JOB_NAME' in workflow $WORKFLOW_ID with status '$JOB_STATUS'."
+
+          if [[ "$JOB_STATUS" != "on_hold" ]]; then
+            echo "Nothing to approve."
+            exit 0
+          fi
+
+          # 3. Approve it.
+          HTTP_STATUS=$(curl -s --max-time 15 -o /dev/null -w "%{http_code}" -X POST \
+            -H "Circle-Token: $CCI_TOKEN" \
+            "https://circleci.com/api/v2/workflow/$WORKFLOW_ID/approve/$APPROVAL_REQUEST_ID")
+          if [[ "$HTTP_STATUS" != "202" ]]; then
+            echo "::error::Failed to approve job. CircleCI returned HTTP $HTTP_STATUS"
+            exit 1
+          fi
+          echo "Approved '$APPROVAL_JOB_NAME' for $BRANCH@$HEAD_SHA."
