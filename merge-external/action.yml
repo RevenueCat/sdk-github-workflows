@@ -1,0 +1,25 @@
+name: Merge external PR
+description: >-
+  Squash-merges an approved fork PR into `external/<author>/<pr>` and opens the internal PR,
+  for an `@rcgitbot merge-external [pr:label ...]` comment. Called by the merge-external
+  reusable workflow.
+
+inputs:
+  github-token:
+    description: Token with Contents and Pull requests write; the job's GITHUB_TOKEN when called from the workflow.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Merge the fork PR into an external branch and open the internal PR
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        PR_NUMBER: ${{ github.event.issue.number }}
+        COMMENT_ID: ${{ github.event.comment.id }}
+        COMMENT_BODY: ${{ github.event.comment.body }}
+        COMMENTER: ${{ github.event.comment.user.login }}
+      run: exec bash "$GITHUB_ACTION_PATH/merge-external.sh"
