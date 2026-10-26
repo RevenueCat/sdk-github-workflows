@@ -1,0 +1,36 @@
+name: Merge external PR
+
+# Reusable workflow: `@rcgitbot merge-external [pr:label ...]` on a fork PR runs
+# the automated steps of "Merging external contributions" with the job's
+# GITHUB_TOKEN. It creates `external/<author>/<pr>` off the default branch,
+# retargets the fork PR to it and squash-merges it there, then opens the
+# internal PR so CircleCI runs. The comment is the commenter's attestation that
+# they audited the fork's code.
+#
+# Callers trigger this on `issue_comment: [created]`, which gets a write token
+# on an event anyone can fire: the comment, the PR title and the changed paths
+# are all attacker-controlled. The caller job must grant the permissions below.
+#
+# GITHUB_TOKEN never has the Workflows permission, so GitHub rejects any merge
+# touching `.github/workflows` even if the action's path check were to miss it.
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  merge-external:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.issue.pull_request
+      && startsWith(github.event.comment.body, '@rcgitbot merge-external')
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - uses: RevenueCat/sdk-github-workflows/merge-external@f8d72e3752789b4e2cf0628f54461b017c83d563
+        with:
+          github-token: ${{ github.token }}
