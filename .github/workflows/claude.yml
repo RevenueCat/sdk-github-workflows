@@ -48,7 +48,7 @@ jobs:
             USERNAME="${{ github.event.issue.user.login }}"
           fi
           
-          PERMISSION=$(gh api repos/${{ github.repository }}/collaborators/$USERNAME/permission --jq .permission)
+          PERMISSION=$(gh api repos/${{ github.repository }}/collaborators/"$USERNAME"/permission --jq .permission)
           if [[ "$PERMISSION" == "admin" || "$PERMISSION" == "write" ]]; then
             echo "✓ User $USERNAME has write access (permission: $PERMISSION)"
           else
