@@ -1,0 +1,108 @@
+name: Hotfix
+
+# Reusable workflow: handles `@rcgitbot hotfix <major>` PR comments by
+# triggering a CircleCI pipeline on the default branch with the `hotfix` action,
+# which runs the fastlane `hotfix` lane. This workflow checks the comment format
+# and the commenter's write access; the lane validates the PR and the version
+# again before changing anything. Patching an older minor takes a full version,
+# which only the lane accepts.
+#
+# Callers trigger this on `issue_comment: [created]` and must grant the calling
+# job `issues: write`, since a called workflow cannot exceed its caller's
+# permissions.
+
+on:
+  workflow_call:
+    secrets:
+      CIRCLECI_TOKEN:
+        required: true
+
+permissions: {}
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    # startsWith() is case-insensitive.
+    if: >-
+      github.event.action == 'created'
+      && github.event.issue.pull_request
+      && startsWith(github.event.comment.body, '@rcgitbot hotfix ')
+    # Creating issue comments and reactions on issue comments both accept
+    # `issues: write`; the collaborator permission endpoint needs only metadata
+    # read, which GITHUB_TOKEN always has.
+    permissions:
+      issues: write
+
+    steps:
+      - name: Parse version
+        id: parse
+        env:
+          COMMENT: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          shopt -s nocasematch
+
+          FIRST_LINE="${COMMENT%%$'\n'*}"
+          PATTERN='^@rcgitbot hotfix ([0-9]+)[[:space:]]*$'
+          if [[ ! "$FIRST_LINE" =~ $PATTERN ]]; then
+            echo "::error::Expected '@rcgitbot hotfix <major>'."
+            exit 1
+          fi
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+
+      - name: Check commenter permission
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LOGIN: ${{ github.event.comment.user.login }}
+        run: |
+          set -euo pipefail
+
+          # `permission` reports maintain as write.
+          PERMISSION=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$LOGIN/permission" --jq '.permission')
+          if [[ "$PERMISSION" != "admin" && "$PERMISSION" != "write" ]]; then
+            echo "::error::$LOGIN has '$PERMISSION' permission, not write."
+            exit 1
+          fi
+
+      - name: Trigger CircleCI pipeline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CCI_TOKEN: ${{ secrets.CIRCLECI_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          VERSION: ${{ steps.parse.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          BODY_JSON=$(jq -n \
+            --arg branch "$DEFAULT_BRANCH" \
+            --argjson pr "$PR_NUMBER" \
+            --arg version "$VERSION" \
+            '{branch: $branch, parameters: {action: "hotfix", hotfix_pr: $pr, hotfix_version: $version}}')
+
+          HTTP_STATUS=$(curl -s --max-time 15 -o "$RUNNER_TEMP/pipeline.json" -w "%{http_code}" -X POST \
+            -H "Circle-Token: $CCI_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$BODY_JSON" \
+            "https://circleci.com/api/v2/project/gh/$GITHUB_REPOSITORY/pipeline")
+
+          if [[ "$HTTP_STATUS" != 2* ]]; then
+            echo "::error::Failed to trigger pipeline. CircleCI returned HTTP $HTTP_STATUS"
+            cat "$RUNNER_TEMP/pipeline.json"
+            exit 1
+          fi
+
+          PIPELINE_NUMBER=$(jq -r '.number' "$RUNNER_TEMP/pipeline.json")
+          gh api --silent "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            -f body="Hotfix $VERSION started: [pipeline #$PIPELINE_NUMBER](https://app.circleci.com/pipelines/gh/$GITHUB_REPOSITORY/$PIPELINE_NUMBER)"
+
+      - name: React to comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REACTION: ${{ job.status == 'success' && '+1' || '-1' }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api --silent "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID/reactions" \
+            -f content="$REACTION"
