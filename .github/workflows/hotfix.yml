@@ -1,10 +1,11 @@
 name: Hotfix
 
-# Reusable workflow: handles `@rcgitbot hotfix <version>` PR comments by
+# Reusable workflow: handles `@rcgitbot hotfix <major>` PR comments by
 # triggering a CircleCI pipeline on the default branch with the `hotfix` action,
 # which runs the fastlane `hotfix` lane. This workflow checks the comment format
 # and the commenter's write access; the lane validates the PR and the version
-# again before changing anything.
+# again before changing anything. Patching an older minor takes a full version,
+# which only the lane accepts.
 #
 # Callers trigger this on `issue_comment: [created]` and must grant the calling
 # job `issues: write`, since a called workflow cannot exceed its caller's
@@ -43,9 +44,9 @@ jobs:
           shopt -s nocasematch
 
           FIRST_LINE="${COMMENT%%$'\n'*}"
-          PATTERN='^@rcgitbot hotfix ([0-9]+|[0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*$'
+          PATTERN='^@rcgitbot hotfix ([0-9]+)[[:space:]]*$'
           if [[ ! "$FIRST_LINE" =~ $PATTERN ]]; then
-            echo "::error::Expected '@rcgitbot hotfix <major>' or '@rcgitbot hotfix <major.minor.patch>'."
+            echo "::error::Expected '@rcgitbot hotfix <major>'."
             exit 1
           fi
           echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
