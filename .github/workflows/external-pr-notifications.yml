@@ -41,6 +41,6 @@ jobs:
       group: external-pr-audit-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     steps:
-      - uses: RevenueCat/sdk-github-workflows/external-pr-audit@a93b9c3c2857220af264f355e5c5d8ba821c978d
+      - uses: RevenueCat/sdk-github-workflows/external-pr-audit@a0cb2d28044036a5465e387144477ed574083df4
         with:
           webhook-url: ${{ secrets.EXTERNAL_PR_SLACK_WEBHOOK_URL }}
