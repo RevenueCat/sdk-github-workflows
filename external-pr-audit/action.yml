@@ -1,0 +1,26 @@
+name: External PR tripwire audit
+description: >-
+  Reads a fork PR's git objects as data, runs the mechanical checks of the fork-pr-audit skill
+  (CI/build/agent paths, symlinks, binaries, invisible characters, agent-directed phrases, new
+  hosts, commit identities) and posts the hits to Slack. Nothing from the PR is checked out or
+  executed. Called by the external-pr-notifications reusable workflow on `pull_request_target`.
+
+inputs:
+  webhook-url:
+    description: Slack incoming webhook that receives the verdict.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Audit the PR's objects and post the hits to Slack
+      shell: bash
+      env:
+        WEBHOOK_URL: ${{ inputs.webhook-url }}
+        REPOSITORY: ${{ github.repository }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        BASE_REF: ${{ github.event.pull_request.base.ref }}
+        AUTHOR: ${{ github.event.pull_request.user.login }}
+      run: exec bash "$GITHUB_ACTION_PATH/external-pr-audit.sh"
