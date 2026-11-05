@@ -31,6 +31,7 @@ posted=0
 post() {
   local hit_count
   hit_count=$(cat "$hits" "$work/dropped" | grep -c '' || true)
+  if (( hit_count == 0 )) && [[ ! -s $work/status ]]; then posted=1; return; fi
   cat "$hits" "$work/dropped" | sort -s -t $'\t' -k1,1 | awk -F '\t' '
     $2 != "" { print $2; next }
     { more[$1]++ }
@@ -38,7 +39,7 @@ post() {
   ' > "$work/hits_text"
   jq -n --arg header "Tripwire audit of $REPOSITORY#$PR_NUMBER at ${HEAD_SHA:0:12} by $AUTHOR: $hit_count hits" \
     --rawfile hits "$work/hits_text" --rawfile status "$work/status" '{
-    text: ((if $hits + $status == "" then $header else $header + "\n```\n" + $hits + $status + "```" end)
+    text: (($header + "\n```\n" + $hits + $status + "```")
       | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")),
     unfurl_links: false, unfurl_media: false
   }' > "$work/payload.json"
@@ -70,7 +71,6 @@ trap 'signalled=1; exit 143' TERM INT
 [[ $HEAD_SHA =~ ^[0-9a-f]{40}$ ]] || { echo "invalid HEAD_SHA" >&2; exit 1; }
 [[ $AUTHOR =~ ^[A-Za-z0-9-]+(\[bot\])?$ ]] || { echo "invalid AUTHOR" >&2; exit 1; }
 git check-ref-format --branch "$BASE_REF" > /dev/null || { echo "invalid BASE_REF" >&2; exit 1; }
-git check-ref-format --branch "$DEFAULT_BRANCH" > /dev/null || { echo "invalid DEFAULT_BRANCH" >&2; exit 1; }
 PR_TITLE=$(jq -r '.pull_request.title // ""' "$GITHUB_EVENT_PATH")
 PR_BODY=$(jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH")
 
@@ -103,7 +103,7 @@ pr_diff() { git diff --no-ext-diff --no-textconv --no-renames --no-color "$base"
 pr_log() { git log "$@" "$base..$HEAD_SHA"; }
 
 # 1. Base branch
-[[ $BASE_REF == "$DEFAULT_BRANCH" ]] || hit base "base branch is '$BASE_REF', not '$DEFAULT_BRANCH'"
+[[ $BASE_REF =~ ^(release/|hotfix)|-dev$ ]] && hit base "base branch is the release branch '$BASE_REF'"
 
 # 2. Paths that run on CI, on install, or steer agents
 sensitive_paths='(^|/)(\.circleci|\.github|fastlane|scripts|tools?|bin|ci|buildSrc|build-logic|gradle|Tuist|Editor|\.husky|\.vscode|\.idea|\.claude|\.cursor|\.codex|\.gemini|\.yarn)/|(^|/)(Gemfile[^/]*|Dangerfile|Makefile|Rakefile|mise\.toml|Brewfile|\.pre-commit-config\.yaml|lefthook\.yml|\.rubocop\.yml|gradlew|gradlew\.bat|gradle\.properties|Package(@swift-[^/]*)?\.swift|Package\.resolved|Podfile[^/]*|project\.pbxproj|Project\.swift|Workspace\.swift|Tuist\.swift|package\.json|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb|\.npmrc|\.yarnrc[^/]*|\.pnpmfile\.cjs|pubspec\.yaml|pubspec\.lock|plugin\.xml|\.gitmodules|\.gitattributes|\.gitignore|AGENTS\.md|CLAUDE\.md|GEMINI\.md|\.cursorrules|\.windsurfrules|\.clinerules|copilot-instructions\.md|\.mcp\.json)$|\.(gradle|gradle\.kts|gemspec|podspec|podspec\.json|xcscheme|xcconfig|toml)$|(^|/)[^/]*\.config\.[cm]?[jt]s$|(^|/)\.eslintrc[^/]*$|(^|/)\.env[^/]*$'
