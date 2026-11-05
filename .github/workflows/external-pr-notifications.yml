@@ -10,7 +10,7 @@ permissions: {}
 
 jobs:
   notify:
-    if: github.event.pull_request.head.repo.fork
+    if: github.event.pull_request.head.repo.fork && github.event.action == 'opened'
     runs-on: ubuntu-latest
     steps:
       - name: Post to Slack
@@ -22,7 +22,8 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          safe_title=${PR_TITLE//&/\&amp;}
+          safe_title=${PR_TITLE//[$'\n\r']/ }
+          safe_title=${safe_title//&/\&amp;}
           safe_title=${safe_title//</\&lt;}
           safe_title=${safe_title//>/\&gt;}
 
@@ -31,3 +32,15 @@ jobs:
           jq -n --arg text "$text" '{text: $text, unfurl_links: false, unfurl_media: false}' \
             | curl --silent --fail --show-error --max-time 15 \
                 -X POST -H 'Content-type: application/json' --data @- "$WEBHOOK_URL"
+
+  audit:
+    if: github.event.pull_request.head.repo.fork && (github.event.action != 'edited' || github.event.changes.base)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: external-pr-audit-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: RevenueCat/sdk-github-workflows/external-pr-audit@a0cb2d28044036a5465e387144477ed574083df4
+        with:
+          webhook-url: ${{ secrets.EXTERNAL_PR_SLACK_WEBHOOK_URL }}
