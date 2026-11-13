@@ -8,8 +8,8 @@ name: Hotfix
 # which only the lane accepts.
 #
 # Callers trigger this on `issue_comment: [created]` and must grant the calling
-# job `issues: write`, since a called workflow cannot exceed its caller's
-# permissions.
+# job `issues: write` and `pull-requests: write`, since a called workflow
+# cannot exceed its caller's permissions.
 
 on:
   workflow_call:
@@ -27,11 +27,13 @@ jobs:
       github.event.action == 'created'
       && github.event.issue.pull_request
       && startsWith(github.event.comment.body, '@rcgitbot hotfix ')
-    # Creating issue comments and reactions on issue comments both accept
-    # `issues: write`; the collaborator permission endpoint needs only metadata
-    # read, which GITHUB_TOKEN always has.
+    # On a PR, GITHUB_TOKEN with only `issues: write` gets a 403 when creating
+    # an issue comment or a reaction to one, although the REST docs list
+    # `issues: write` for both. The collaborator permission endpoint needs only
+    # metadata read, which GITHUB_TOKEN always has.
     permissions:
       issues: write
+      pull-requests: write
 
     steps:
       - name: Parse version
