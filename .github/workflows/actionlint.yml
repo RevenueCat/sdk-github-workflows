@@ -4,9 +4,9 @@ on:
   workflow_call:
   push:
     branches: [main]
-    paths: ['.github/workflows/**']
+    paths: ['.github/workflows/**', '**.sh']
   pull_request:
-    paths: ['.github/workflows/**']
+    paths: ['.github/workflows/**', '**.sh']
 
 permissions: {}
 
@@ -20,7 +20,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: .github
 
       - name: Install actionlint
         env:
@@ -39,3 +38,7 @@ jobs:
           FORMAT: |-
             {{range $err := .}}::error file={{$err.Filepath}},line={{$err.Line}},col={{$err.Column}}::{{$err.Message}}%0A```%0A{{replace $err.Snippet "\\n" "%0A"}}%0A```\n{{end}}
         run: '"$RUNNER_TEMP/actionlint" -format "$FORMAT"'
+
+      - name: Lint shell scripts
+        if: github.repository == 'RevenueCat/sdk-github-workflows'
+        run: git ls-files -z '*.sh' | xargs -0 shellcheck
