@@ -1,0 +1,39 @@
+name: Accept external PR
+
+# Reusable workflow: handles `@rcgitbot accept external` comments on fork PRs
+# through the accept-external-pr action.
+#
+# Callers trigger this on `issue_comment: [created]` and must grant the calling
+# job `contents: write`, `pull-requests: write` and `issues: write`, since a
+# called workflow cannot exceed its caller's permissions.
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    # startsWith() is case-insensitive.
+    if: >-
+      github.event.action == 'created'
+      && github.event.issue.pull_request
+      && startsWith(github.event.comment.body, '@rcgitbot accept external')
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - uses: RevenueCat/sdk-github-workflows/accept-external-pr@72a3e8aec334a88c53efc2e818209edb8cdb300e
+
+      - name: React to comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REACTION: ${{ job.status == 'success' && '+1' || '-1' }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api --silent "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID/reactions" \
+            -f content="$REACTION"
