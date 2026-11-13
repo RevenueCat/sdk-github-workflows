@@ -1,0 +1,42 @@
+name: Fork PR base guard
+
+# Reusable workflow: callers trigger it on
+# `pull_request_target: [opened, reopened, synchronize, edited]` and require
+# the `fork-pr-base-guard` status in a ruleset covering non-default branches.
+#
+# The result is posted as a commit status because a fork can add a job with
+# any name to its own `pull_request` runs, but its token cannot write statuses.
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    steps:
+      - name: Post base branch status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: |
+          set -euo pipefail
+
+          state=success
+          description="Base branch allowed"
+          if [[ "$IS_FORK" == "true" && "$BASE_REF" != "$DEFAULT_BRANCH" && "$BASE_REF" != external/* ]]; then
+            state=failure
+            description="Fork PRs can only be merged into external/ branches"
+          fi
+
+          gh api "repos/$REPO/statuses/$HEAD_SHA" \
+            -f state="$state" \
+            -f context=fork-pr-base-guard \
+            -f description="$description"
