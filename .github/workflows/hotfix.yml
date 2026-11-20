@@ -3,7 +3,8 @@ name: Hotfix
 # Reusable workflow: handles `@rcgitbot hotfix <major>` PR comments by
 # triggering a CircleCI pipeline on the default branch with the `hotfix` action,
 # which runs the fastlane `hotfix` lane. This workflow checks the comment format
-# and the commenter's write access; the lane validates the PR and the version
+# and the commenter's write access, then reacts to the comment; the CircleCI job
+# comments its link on the PR, and the lane validates the PR and the version
 # again before changing anything. Patching an older minor takes a full version,
 # which only the lane accepts.
 #
@@ -27,10 +28,10 @@ jobs:
       github.event.action == 'created'
       && github.event.issue.pull_request
       && startsWith(github.event.comment.body, '@rcgitbot hotfix ')
-    # On a PR, GITHUB_TOKEN with only `issues: write` gets a 403 when creating
-    # an issue comment or a reaction to one, although the REST docs list
-    # `issues: write` for both. The collaborator permission endpoint needs only
-    # metadata read, which GITHUB_TOKEN always has.
+    # On a PR, GITHUB_TOKEN with only `issues: write` gets a 403 when reacting
+    # to an issue comment, although the REST docs list `issues: write` for it.
+    # The collaborator permission endpoint needs only metadata read, which
+    # GITHUB_TOKEN always has.
     permissions:
       issues: write
       pull-requests: write
@@ -69,7 +70,6 @@ jobs:
 
       - name: Trigger CircleCI pipeline
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CCI_TOKEN: ${{ secrets.CIRCLECI_TOKEN }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           PR_NUMBER: ${{ github.event.issue.number }}
@@ -96,8 +96,7 @@ jobs:
           fi
 
           PIPELINE_NUMBER=$(jq -r '.number' "$RUNNER_TEMP/pipeline.json")
-          gh api --silent "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
-            -f body="Hotfix $VERSION started: [pipeline #$PIPELINE_NUMBER](https://app.circleci.com/pipelines/gh/$GITHUB_REPOSITORY/$PIPELINE_NUMBER)"
+          echo "Started https://app.circleci.com/pipelines/gh/$GITHUB_REPOSITORY/$PIPELINE_NUMBER"
 
       - name: React to comment
         if: always()
